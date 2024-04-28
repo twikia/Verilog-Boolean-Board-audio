@@ -1,0 +1,424 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 04/24/2024 11:41:00 PM
+// Design Name: 
+// Module Name: Audioproject
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+module hexEncode(input [3:0] bin, output reg [7:0] hex);
+  always @(bin) begin
+    case (bin)
+      4'h0: hex = 8'b11000000; // '0'
+      4'h1: hex = 8'b11111001; // '1'
+      4'h2: hex = 8'b10100100; // '2'
+      4'h3: hex = 8'b10110000; // '3'
+      4'h4: hex = 8'b10011001; // '4'
+      4'h5: hex = 8'b10010010; // '5'
+      4'h6: hex = 8'b10000010; // '6'
+      4'h7: hex = 8'b11111000; // '7'
+      4'h8: hex = 8'b10000000; // '8'
+      4'h9: hex = 8'b10011000; // '9'
+      4'ha: hex = 8'b10001000; // 'a'
+      4'hb: hex = 8'b10000011; // 'b'
+      4'hc: hex = 8'b11000110; // 'c'
+      4'hd: hex = 8'b10100001; // 'd'
+      4'he: hex = 8'b10000110; // 'e'
+      4'hF: hex = 8'b10001110; // 'F'
+      default: hex = 7'b1111111; // Turn all segments off for undefined inputs
+    endcase
+  end
+endmodule
+
+
+module NoteSwitcher (
+    input mclk,         
+    input [1:0] sw,
+    input [3:0] btn,
+    output reg left_audio, 
+    output reg right_audio,
+    output reg[7:0] D0_seg,
+    output reg[3:0] D0_a
+);
+
+// Parameters for audio configuration
+parameter DUTY_CYCLE = 50;       
+//parameter note1_freq = 293; 
+//parameter note2_freq = 587;
+//parameter note3_freq = 415;
+//parameter note4_freq = 392; 
+parameter note1_freq = 330; 
+parameter note2_freq = 293;
+parameter note3_freq = 98;
+parameter note4_freq = 262; 
+
+
+parameter note1_len = 100000000;
+reg [31:0] note_len = 0;
+
+
+// Internal signals
+reg audio_counter; 
+reg [20:0] cycle_counter; 
+reg [4:0] current_note = 0; 
+
+
+always @(posedge mclk) begin
+    
+//    note_len <= note_len + 1;
+    
+//   if (note_len >= note1_len) begin
+//   current_note <= current_note + 1;
+//   current_note <= current_note % 3;
+////    if (current_note >= 4) begin current_note = 0; end
+//    note_len <= 0;
+//   end
+   
+    
+    current_note <= sw;
+
+    cycle_counter <= cycle_counter + 1;
+
+    // Select frequency based on current_note
+    case (current_note)
+        0: if (cycle_counter == (100_000_000 / (note1_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter; end
+        1: if (cycle_counter == (100_000_000 / (note2_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter; end
+        2: if (cycle_counter == (100_000_000 / (note3_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter; end
+        3: if (cycle_counter == (100_000_000 / (note4_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter; end  
+        default: cycle_counter <= cycle_counter; 
+    endcase
+
+    // PWM generation 
+    case (current_note)
+        0: left_audio <= (cycle_counter < note1_freq * DUTY_CYCLE / 100) ? 1 : 0;
+        1: left_audio <= (cycle_counter < note2_freq * DUTY_CYCLE / 100) ? 1 : 0;
+        2: left_audio <= (cycle_counter < note3_freq * DUTY_CYCLE / 100) ? 1 : 0;
+        3: left_audio <= (cycle_counter < note4_freq * DUTY_CYCLE / 100) ? 1 : 0;
+        default: left_audio <= 0; 
+    endcase
+
+    right_audio <= left_audio;
+end
+
+
+//hex display section
+// Parameters for counting
+    parameter TARGET_COUNT = 100_000; //1khz to refresh data
+    reg [25:0] counter = 0; // 26-bit counter to hold up to 50,000,000
+    reg button_reg = 1;  // Register to hold the previous state of the button
+
+    //reg [15:0] ledCounter = 0; // 16 bit counter to count up to 16 bits then reset
+
+    reg[3:0] odigit = 0;
+    reg[3:0] tdigit = 0;
+    reg[3:0] hdigit = 0;
+    reg[3:0] thdigit = 0;
+    reg[1:0] targetHex = 0;
+    reg shouldCount = 1;
+    
+    wire [7:0] out0, out1, out2, out3;
+    hexEncode h1(thdigit, out0);
+    hexEncode h2(hdigit, out1);
+    hexEncode h3(tdigit, out2);
+    hexEncode h4(odigit, out3);
+    
+    always @(posedge mclk) begin
+
+        if (btn[0]) begin
+            odigit <= 0;
+            tdigit <= 0;
+            hdigit <= 0;
+            thdigit <= 0;
+        end     
+        
+        
+        if (button_reg && btn[1]) begin
+            button_reg <= 0;
+            shouldCount <= ~shouldCount;  
+        end
+        
+        if (!btn[1]) begin
+            button_reg <= 1;
+        end
+           
+        
+        //correct clock speed of 1khz
+        if (counter >= TARGET_COUNT - 1) begin
+            counter <= 0;  // Reset counter
+            
+            if (shouldCount) begin // only increment counter if mode is counting
+      	     odigit <= odigit + 1;
+      	    end
+            targetHex <= targetHex + 1;
+//            led <= ~led;  // Toggle LED state
+        end else begin
+            counter <= counter + 1;  // Increment counter
+	    
+        end
+
+      
+        //section to increment all digits if necessary
+        if (odigit >= 10) begin
+            tdigit <= tdigit + 1;
+            odigit <= 0;
+        end
+        
+        if (tdigit >= 10) begin
+            hdigit <= hdigit + 1;
+            tdigit <= 0;
+        end
+        
+        if (hdigit >= 10) begin 
+            thdigit <= thdigit + 1;
+            hdigit <= 0;
+        end    
+        
+        if (thdigit >= 10) begin
+            thdigit <= 0;
+        end  
+        
+        //section to display the hex values - ps they are assigned at begining before increment
+        if (targetHex == 0) begin
+            D0_seg <= out0;
+            D0_a <= 4'b0111;
+        end else if(targetHex == 1) begin
+            D0_seg <= out1;
+            D0_a <= 4'b1011;
+        end else if (targetHex == 2) begin
+            D0_seg <= out2;
+            D0_a <= 4'b1101;
+        end else begin
+            D0_seg <= out3;
+            D0_a <= 4'b1110;
+        end
+        
+            
+    end
+    
+endmodule
+
+
+//module NoteSwitcher (
+//    input mclk,       // Main clock (100 MHz)
+//    input [3:0] btn,     // Input button
+//    output reg left_audio, 
+//    output reg right_audio 
+//);
+
+//// Parameters for audio configuration
+//parameter DUTY_CYCLE = 50;       
+////parameter NOTE1_FREQ = 440;  // Frequency of the first note (Hz)
+////parameter NOTE2_FREQ = 554;  // Frequency of the second note (Hz)
+
+//parameter note1_freq = 293; 
+//parameter note2_freq = 587;
+//parameter note3_freq = 415;
+//parameter note4_freq = 392; 
+
+//// Internal signals
+//reg audio_counter; 
+//reg [20:0] cycle_counter; 
+//reg [4:0] current_note = 0; // 0 = first note, 1 = second note
+
+//// Debouncing logic for the button
+//reg button_prev;
+//reg button_db; // Debounced button state
+
+//always @(posedge mclk) begin
+//    button_prev <= btn[0];
+//    button_db <= btn[0] & ~button_prev; // Detect rising edge
+//end
+
+//// Frequency selection logic
+////always @(posedge mclk) begin
+////    if (button_db) begin
+////        current_note <= ~current_note; // Toggle between notes
+////    end
+
+////    cycle_counter <= cycle_counter + 1;
+
+////    if (cycle_counter == (100_000_000 / ((current_note == 0 ? NOTE1_FREQ : NOTE2_FREQ) * 2))) begin
+////        cycle_counter <= 0;
+////        audio_counter <= ~audio_counter; 
+////    end
+////end
+
+//// Clock divider for audio frequency 
+//always @(posedge mclk) begin
+
+//if (button_db) begin
+//        current_note <= current_note + 1; // Toggle between notes
+//    end 
+
+//current_note <= current_note % 3;
+    
+//  cycle_counter <= cycle_counter + 1;
+
+//  // Select frequency based on note_counter
+//  case (current_note)
+//    0: if (cycle_counter == (100_000_000 / (note1_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    1: if (cycle_counter == (100_000_000 / (note2_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    2: if (cycle_counter == (100_000_000 / (note3_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    3: if (cycle_counter == (100_000_000 / (note4_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end  
+//    default: cycle_counter <= cycle_counter; // In case note_counter exceeds defined notes
+//  endcase
+//end
+
+//// PWM generation
+//always @(posedge mclk) begin
+////    left_audio  <= (cycle_counter < (current_note == 0 ? NOTE1_FREQ : NOTE2_FREQ) * DUTY_CYCLE / 100) ? 1 : 0;
+    
+//      case (current_note)
+//    0: left_audio  <= (cycle_counter < note1_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    1: left_audio  <= (cycle_counter < note2_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    2: left_audio  <= (cycle_counter < note3_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    3: left_audio  <= (cycle_counter < note4_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    default: left_audio <= 0; // Handle exceeding defined notes
+//  endcase
+//    right_audio <= left_audio;
+//end
+
+//endmodule
+
+
+//module NoteSwitcher (
+//    input mclk,       // Main clock (100 MHz)
+//    input [3:0] btn,     // Input button
+//    output reg left_audio, 
+//    output reg right_audio 
+//);
+
+//// Parameters for audio configuration
+//parameter DUTY_CYCLE = 50;       
+//parameter NOTE1_FREQ = 440;  // Frequency of the first note (Hz)
+//parameter NOTE2_FREQ = 554;  // Frequency of the second note (Hz)
+
+//// Internal signals
+//reg audio_counter; 
+//reg [20:0] cycle_counter; 
+//reg current_note; // 0 = first note, 1 = second note
+
+//// Debouncing logic for the button
+//reg button_prev;
+//reg button_db; // Debounced button state
+
+//always @(posedge mclk) begin
+//    button_prev <= btn[0];
+//    button_db <= btn[0] & ~button_prev; // Detect rising edge
+//end
+
+//// Frequency selection logic
+//always @(posedge mclk) begin
+//    if (button_db) begin
+//        current_note <= ~current_note; // Toggle between notes
+//    end
+
+//    cycle_counter <= cycle_counter + 1;
+
+//    if (cycle_counter == (100_000_000 / ((current_note == 0 ? NOTE1_FREQ : NOTE2_FREQ) * 2))) begin
+//        cycle_counter <= 0;
+//        audio_counter <= ~audio_counter; 
+//    end
+//end
+
+//// PWM generation
+//always @(posedge mclk) begin
+//    left_audio  <= (cycle_counter < (current_note == 0 ? NOTE1_FREQ : NOTE2_FREQ) * DUTY_CYCLE / 100) ? 1 : 0;
+//    right_audio <= left_audio;
+//end
+
+//endmodule
+
+
+
+//module StereoAudioOutput(
+//  input mclk,       // Main clock (100 MHz)
+//  output reg left_audio, 
+//  output reg right_audio 
+//);
+
+//// Parameters for audio configuration
+//parameter DUTY_CYCLE = 50;       
+
+//// Parameters for individual notes (example with 4 notes)
+//parameter note1_freq = 293; 
+//parameter note2_freq = 587;
+//parameter note3_freq = 415;
+//parameter note4_freq = 392; 
+
+
+//parameter QUARTER_NOTE = 500_000_000; // Example if a quarter note is half a second 
+//parameter HALF_NOTE   = QUARTER_NOTE * 2;
+//parameter EIGHTH_NOTE = QUARTER_NOTE / 2;
+
+
+//parameter note1_duration = QUARTER_NOTE; 
+//parameter note2_duration = HALF_NOTE;
+//parameter note3_duration = QUARTER_NOTE;
+//parameter note4_duration = HALF_NOTE;
+
+//// Internal signals
+//reg audio_counter; 
+//reg [20:0] cycle_counter;  
+//reg [7:0] note_counter;     // Increased to 7 bits for up to 128 notes
+//reg [7:0] duration_counter; 
+
+//// Clock divider for audio frequency 
+//always @(posedge mclk) begin
+//  cycle_counter <= cycle_counter + 1;
+
+//  // Select frequency based on note_counter
+//  case (note_counter)
+//    0: if (cycle_counter == (100_000_000 / (note1_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    1: if (cycle_counter == (100_000_000 / (note2_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    2: if (cycle_counter == (100_000_000 / (note3_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end
+//    3: if (cycle_counter == (100_000_000 / (note4_freq * 2))) begin cycle_counter <= 0; audio_counter <= ~audio_counter;  end  
+//    default: cycle_counter <= cycle_counter; // In case note_counter exceeds defined notes
+//  endcase
+//end
+
+//// Sequence logic
+//always @(posedge mclk) begin
+//  if (audio_counter) begin 
+//    duration_counter <= duration_counter - 1;
+//    if (duration_counter == 0) begin
+//      note_counter <= (note_counter + 1) % 4; // Loop back to note 0 after note 3 
+//      case (note_counter)
+//        0: duration_counter <= note1_duration;
+//        1: duration_counter <= note2_duration;
+//        2: duration_counter <= note3_duration;
+//        3: duration_counter <= note4_duration;
+//      endcase
+//    end
+//  end
+
+//  // PWM generation (same as before)
+//  // Select frequency based on note_counter as done inside the clock divider
+//  case (note_counter)
+//    0: left_audio  <= (cycle_counter < note1_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    1: left_audio  <= (cycle_counter < note2_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    2: left_audio  <= (cycle_counter < note3_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    3: left_audio  <= (cycle_counter < note4_freq  * DUTY_CYCLE / 100) ? 1 : 0;
+//    default: left_audio <= 0; // Handle exceeding defined notes
+//  endcase
+
+//  right_audio <= left_audio; // Keep the right channel the same
+//end
+
+//endmodule
+
+
+
